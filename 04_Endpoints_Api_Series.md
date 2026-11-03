@@ -741,6 +741,220 @@ sequenceDiagram
 - `Servicios/Inventario/Mantenimiento/SerieService.cs`
 - Modelos `Models/Request/Inventario/Mantenimiento/SerieM.cs` y `Models/Response/Inventario/Mantenimiento/SerieM.cs`
 
+### 14.1 Controlador — `Controllers/Inventario/Mantenimiento/SeriesController.cs`
+
+La ruta sale de `[Route("api/[controller]")]` + `[HttpPost("mantenimiento")]`, que da `api/Series/mantenimiento`.
+
+```csharp
+using ApiBusiness.Model.Shared;
+using ApiBusiness.Models.Response.Inventario.Mantenimiento;
+using ApiBusiness.Servicios.Inventario.Mantenimiento;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace ApiBusiness.Controllers.Inventario.Mantenimiento
+{
+    [Authorize]
+    [Route("api/[controller]")]
+    [ApiController]
+    public class SeriesController(IConfiguration configuration) : ControllerBase
+    {
+        private readonly SerieService _serieService = new(configuration);
+
+        /* =============================================================================
+           1. ENDPOINT PARA MANTENIMIENTO DE SERIES (PA_tbl_Serie)
+           TAccion: 1 insertar, 2 actualizar, 3 eliminar, 4 consultar
+           ============================================================================= */
+        [HttpPost("mantenimiento")]
+        public async Task<ActionResult> GuardarMantenimiento([FromBody] Models.Request.Inventario.Mantenimiento.SerieM request)
+        {
+            ApiResponseModel<List<SerieM>> response =
+                await _serieService.PA_tbl_Serie(request);
+
+            if (response.Status)
+                return Ok(response);
+
+            return BadRequest(response);
+        }
+    }
+}
+```
+
+### 14.2 Servicio — `Servicios/Inventario/Mantenimiento/SerieService.cs`
+
+`@pSerie` es `InputOutput`. Con `TAccion = 1`, el procedimiento lo sobrescribe con el consecutivo que genera (`MAX(Consecutivo_Interno) + 1`). Como esa acción no devuelve filas, el servicio lee el valor después de ejecutar y lo devuelve en `data`.
+
+```csharp
+using ApiBusiness.Model.Shared;
+using ApiBusiness.Models.Response.Inventario.Mantenimiento;
+using ApiBusiness.Utilidades;
+using System.Data;
+using System.Data.SqlClient;
+
+namespace ApiBusiness.Servicios.Inventario.Mantenimiento
+{
+    public class SerieService(IConfiguration configuration) : StoredProcedureExecutor(configuration)
+    {
+        /* =============================================================================
+           1. SERVICIO PARA MANTENIMIENTO DE SERIES (PA_tbl_Serie)
+           Reemplaza a paInsertTblSerie para los consumidores nuevos; los endpoints
+           anteriores (PaTblSerieCtrl, PaInsertTblSerieCtrl, PaBscSeriesCtrl y
+           PaDelSerieCtrl) siguen usando paInsertTblSerie sin cambios.
+           ============================================================================= */
+        public async Task<ApiResponseModel<List<SerieM>>> PA_tbl_Serie(
+            Models.Request.Inventario.Mantenimiento.SerieM req
+        )
+        {
+            string storeProcedure = "PA_tbl_Serie";
+
+            // OUTPUT: en TAccion 1 el procedimiento lo sobrescribe con el consecutivo generado.
+            SqlParameter pSerie = new("@pSerie", SqlDbType.VarChar, 50)
+            {
+                Value = req.Serie ?? (object)DBNull.Value,
+                Direction = ParameterDirection.InputOutput
+            };
+
+            var parameters = new SqlParameter[]
+            {
+                // Parámetros de Control
+                new("@TAccion", SqlDbType.TinyInt) { Value = req.TAccion },
+                new("@TOpcion", SqlDbType.TinyInt) { Value = req.TOpcion },
+
+                // Llave
+                pSerie,
+                new("@pBodega", SqlDbType.SmallInt) { Value = req.Bodega ?? (object)DBNull.Value },
+                new("@pProducto", SqlDbType.Int) { Value = req.Producto ?? (object)DBNull.Value },
+                new("@pUnidad_Medida", SqlDbType.TinyInt) { Value = req.Unidad_Medida ?? (object)DBNull.Value },
+
+                // Parámetros de la Entidad
+                new("@pEstado", SqlDbType.TinyInt) { Value = req.Estado ?? (object)DBNull.Value },
+                new("@pCantidad", SqlDbType.TinyInt) { Value = req.Cantidad ?? (object)DBNull.Value },
+                new("@pFecha_Vencimiento", SqlDbType.DateTime) { Value = req.Fecha_Vencimiento ?? (object)DBNull.Value },
+                new("@pOrden", SqlDbType.Int) { Value = req.Orden ?? (object)DBNull.Value },
+                new("@pFecha_Hora", SqlDbType.DateTime) { Value = DBNull.Value }, // el procedimiento usa GETDATE()
+                new("@pUserName", SqlDbType.VarChar, 30) { Value = req.UserName ?? (object)DBNull.Value },
+                new("@pM_Fecha_Hora", SqlDbType.DateTime) { Value = DBNull.Value }, // el procedimiento usa GETDATE()
+                new("@pM_UserName", SqlDbType.VarChar, 30) { Value = req.M_UserName ?? (object)DBNull.Value },
+                new("@pCosto_Total", SqlDbType.Decimal) { Precision = 18, Scale = 2, Value = req.Costo_Total ?? (object)DBNull.Value },
+                new("@pFecha_Compra", SqlDbType.DateTime) { Value = req.Fecha_Compra ?? (object)DBNull.Value },
+                new("@pLocalizacion", SqlDbType.SmallInt) { Value = req.Localizacion ?? (object)DBNull.Value },
+                new("@pDepreciacion_Acumulada", SqlDbType.Decimal) { Precision = 18, Scale = 2, Value = req.Depreciacion_Acumulada ?? (object)DBNull.Value },
+                new("@pId_Serie", SqlDbType.VarChar, 50) { Value = req.Id_Serie ?? (object)DBNull.Value },
+                new("@pFecha_Produccion", SqlDbType.DateTime) { Value = req.Fecha_Produccion ?? (object)DBNull.Value },
+                new("@pFecha_Alerta", SqlDbType.DateTime) { Value = req.Fecha_Alerta ?? (object)DBNull.Value }
+            };
+
+            var response = await ExecuteStoredProcedureAsync(storeProcedure, SerieM.MapToModel, parameters);
+
+            // TAccion 1 no devuelve filas: se devuelve la serie generada para que el cliente la conozca.
+            if (response.Status && req.TAccion == 1 && pSerie.Value is string serieGenerada)
+                response.Data = [new SerieM { Serie = serieGenerada }];
+
+            return response;
+        }
+    }
+}
+```
+
+### 14.3 Modelo de petición — `Models/Request/Inventario/Mantenimiento/SerieM.cs`
+
+```csharp
+namespace ApiBusiness.Models.Request.Inventario.Mantenimiento
+{
+    // Parametros de PA_tbl_Serie. El procedimiento no tiene valores por defecto:
+    // lo que no se envie viaja como NULL.
+    public class SerieM
+    {
+        // Parámetros de Control
+        public byte TAccion { get; set; } // 1 insertar, 2 actualizar, 3 eliminar, 4 consultar
+        public byte TOpcion { get; set; } = 1;
+
+        // Llave: Serie + Bodega + Producto + Unidad_Medida.
+        // En TAccion 1 la Serie la genera el procedimiento (consecutivo), no se toma la enviada.
+        public string? Serie { get; set; }
+        public short? Bodega { get; set; }
+        public int? Producto { get; set; }
+        public byte? Unidad_Medida { get; set; }
+
+        // Parámetros de la Entidad
+        public byte? Estado { get; set; }
+        public byte? Cantidad { get; set; }
+        public DateTime? Fecha_Vencimiento { get; set; }
+        public int? Orden { get; set; }
+        public string? UserName { get; set; }
+        public string? M_UserName { get; set; }
+        public decimal? Costo_Total { get; set; }
+        public DateTime? Fecha_Compra { get; set; }
+        public short? Localizacion { get; set; }
+        public decimal? Depreciacion_Acumulada { get; set; }
+        public string? Id_Serie { get; set; }
+        public DateTime? Fecha_Produccion { get; set; }
+        public DateTime? Fecha_Alerta { get; set; }
+    }
+}
+```
+
+### 14.4 Modelo de respuesta — `Models/Response/Inventario/Mantenimiento/SerieM.cs`
+
+```csharp
+using ApiBusiness.Utilidades;
+using System.Data.SqlClient;
+
+namespace ApiBusiness.Models.Response.Inventario.Mantenimiento
+{
+    // Fila de tbl_Serie que devuelve PA_tbl_Serie con TAccion 4.
+    // En TAccion 1 se devuelve solo Serie, con el consecutivo que genero el procedimiento.
+    public class SerieM
+    {
+        public string? Serie { get; set; }
+        public short? Bodega { get; set; }
+        public int? Producto { get; set; }
+        public byte? Unidad_Medida { get; set; }
+        public byte? Estado { get; set; }
+        public byte? Cantidad { get; set; }
+        public DateTime? Fecha_Vencimiento { get; set; }
+        public int? Orden { get; set; }
+        public DateTime? Fecha_Hora { get; set; }
+        public string? UserName { get; set; }
+        public DateTime? M_Fecha_Hora { get; set; }
+        public string? M_UserName { get; set; }
+        public decimal? Costo_Total { get; set; }
+        public DateTime? Fecha_Compra { get; set; }
+        public short? Localizacion { get; set; }
+        public decimal? Depreciacion_Acumulada { get; set; }
+        public string? Id_Serie { get; set; }
+        public DateTime? Fecha_Produccion { get; set; }
+        public DateTime? Fecha_Alerta { get; set; }
+
+        public static SerieM MapToModel(SqlDataReader reader)
+        {
+            return new SerieM()
+            {
+                Serie = reader.GetValueOrDefault<string>("Serie"),
+                Bodega = reader.GetValueOrDefault<short?>("Bodega"),
+                Producto = reader.GetValueOrDefault<int?>("Producto"),
+                Unidad_Medida = reader.GetValueOrDefault<byte?>("Unidad_Medida"),
+                Estado = reader.GetValueOrDefault<byte?>("Estado"),
+                Cantidad = reader.GetValueOrDefault<byte?>("Cantidad"),
+                Fecha_Vencimiento = reader.GetValueOrDefault<DateTime?>("Fecha_Vencimiento"),
+                Orden = reader.GetValueOrDefault<int?>("Orden"),
+                Fecha_Hora = reader.GetValueOrDefault<DateTime?>("Fecha_Hora"),
+                UserName = reader.GetValueOrDefault<string>("UserName"),
+                M_Fecha_Hora = reader.GetValueOrDefault<DateTime?>("M_Fecha_Hora"),
+                M_UserName = reader.GetValueOrDefault<string>("M_UserName"),
+                Costo_Total = reader.GetValueOrDefault<decimal?>("Costo_Total"),
+                Fecha_Compra = reader.GetValueOrDefault<DateTime?>("Fecha_Compra"),
+                Localizacion = reader.GetValueOrDefault<short?>("Localizacion"),
+                Depreciacion_Acumulada = reader.GetValueOrDefault<decimal?>("Depreciacion_Acumulada"),
+                Id_Serie = reader.GetValueOrDefault<string>("Id_Serie"),
+                Fecha_Produccion = reader.GetValueOrDefault<DateTime?>("Fecha_Produccion"),
+                Fecha_Alerta = reader.GetValueOrDefault<DateTime?>("Fecha_Alerta"),
+            };
+        }
+    }
+}
+```
+
 **Patrón:** el nuevo del proyecto. El controlador solo llama al servicio, y el servicio extiende `StoredProcedureExecutor`.
 
 **Autorización:** `[Authorize]`
