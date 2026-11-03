@@ -23,12 +23,32 @@ El flujo consume **dos APIs distintas**:
 | 1 | `GET` | `/GD01/Apis/api/Producto/buscar` | *(GD01)* | — | Buscar productos |
 | 2 | `GET` | `/GD01/Apis/api/producto/Bodega` | *(GD01)* | — | Bodegas del producto |
 | 3 | `POST` | `/GD02/Apis/api/ObtenerHojasExcelCtrl` | `ObtenerHojasExcelCtrl` | — | Listar hojas del libro |
-| 4 | `POST` | `/GD02/Apis/api/PaTblSerieCtrl` | `PaTblSerieCtrl` | `paInsertTblSerie` | Carga masiva desde Excel |
-| 5 | `POST` | `/GD02/Apis/api/PaInsertTblSerieCtrl/insertar` | `PaInsertTblSerieCtrl` | `paInsertTblSerie` | Alta unitaria (escáner) |
-| 6 | `GET` | `/GD02/Apis/api/PaBscSeriesCtrl` | `PaBscSeriesCtrl` | `paInsertTblSerie` | Consulta de series |
-| 7 | `DELETE` | `/GD02/Apis/api/PaDelSerieCtrl` | `PaDelSerieCtrl` | `paInsertTblSerie` | Baja de una serie |
+| 4 | `POST` | `/GD02/Apis/api/PaTblSerieCtrl` | `PaTblSerieCtrl` | `paInsertTblSerie` | Carga masiva desde Excel — **en desuso** |
+| 5 | `POST` | `/GD02/Apis/api/PaInsertTblSerieCtrl/insertar` | `PaInsertTblSerieCtrl` | `paInsertTblSerie` | Alta unitaria (escáner) — **en desuso** |
+| 6 | `GET` | `/GD02/Apis/api/PaBscSeriesCtrl` | `PaBscSeriesCtrl` | `paInsertTblSerie` | Consulta de series — **en desuso** |
+| 7 | `DELETE` | `/GD02/Apis/api/PaDelSerieCtrl` | `PaDelSerieCtrl` | `paInsertTblSerie` | Baja de una serie — **en desuso** |
+| 8 | `POST` | `/GD02/Apis/api/Series/mantenimiento` | `SeriesController` | `PA_tbl_Serie` | Mantenimiento de series — **nuevo, reemplaza a 4–7** |
 
 **Los cuatro endpoints de series (4–7) apuntan al mismo procedimiento almacenado `paInsertTblSerie`**; lo que cambia entre ellos es el valor de `TAccion`.
+
+> ## ⚠️ Cambio 03/11/2026 — `paInsertTblSerie` deja de usarse
+>
+> **Los endpoints que usan `paInsertTblSerie` (4, 5, 6 y 7) se dejarán de usar**, porque ese procedimiento no cumple con los estándares de la empresa.
+> En su lugar se usará **`PA_tbl_Serie`**, el procedimiento estándar de la tabla `tbl_Serie`, a través del endpoint nuevo:
+>
+> ```http
+> POST /GD02/Apis/api/Series/mantenimiento
+> ```
+>
+> | Endpoint que se deja de usar | Se reemplaza con `POST /GD02/Apis/api/Series/mantenimiento` |
+> |---|---|
+> | `POST /GD02/Apis/api/PaTblSerieCtrl` (carga masiva) | `TAccion = 1`, **una petición por serie** (el endpoint nuevo no recibe Excel) |
+> | `POST /GD02/Apis/api/PaInsertTblSerieCtrl/insertar` (alta unitaria) | `TAccion = 1` |
+> | `GET /GD02/Apis/api/PaBscSeriesCtrl` (consulta) | `TAccion = 4`, una serie por llave completa (no hay acción para listar todas) |
+> | `DELETE /GD02/Apis/api/PaDelSerieCtrl` (baja) | `TAccion = 3`, con llave completa |
+>
+> **Mientras los clientes (Angular y Flutter) migran**, los endpoints 4–7 siguen funcionando igual, con las mismas rutas, parámetros y respuestas, para no afectar a quien ya los consume.
+> El endpoint nuevo **no es un reemplazo directo**: cambia el contrato, y la serie escaneada va en `id_Serie`. Antes de migrar un cliente, revisar las diferencias en la sección 14.
 
 ### Ubicación de los archivos en `GD02_APPIS`
 
@@ -37,12 +57,16 @@ ApiBusiness/ApiBusiness/
 ├── Controllers/
 │   ├── Shared/ObtenerHojasExcelCtrl.cs
 │   ├── MigrarExcel/PaTblSerieCtrl.cs
-│   └── Series/
-│       ├── PaInsertTblSerieCtrl.cs
-│       ├── PaBscSeriesCtrl.cs
-│       └── PaDelSerieCtrl.cs
+│   ├── Series/
+│   │   ├── PaInsertTblSerieCtrl.cs
+│   │   ├── PaBscSeriesCtrl.cs
+│   │   └── PaDelSerieCtrl.cs
+│   └── Inventario/Mantenimiento/SeriesController.cs            (nuevo — PA_tbl_Serie)
+├── Servicios/Inventario/Mantenimiento/SerieService.cs          (nuevo — PA_tbl_Serie)
 ├── Models/
 │   ├── Shared/ApiResponseM.cs                                  (ApiResponseModel<T>)
+│   ├── Request/Inventario/Mantenimiento/SerieM.cs              (nuevo — petición)
+│   ├── Response/Inventario/Mantenimiento/SerieM.cs             (nuevo — respuesta)
 │   └── Response/Contabilidad/Proceso/PaTblSerieM.cs
 ├── Utilidades/Utilidades.cs                                    (GetEncabezadosExcel, EliminarDiacriticos)
 └── Connection/Conexion.cs                                      (cadenaSQL)
@@ -157,6 +181,8 @@ using (var package = new ExcelPackage(request.ArchivoExcel.OpenReadStream()))
 ---
 
 ## 5. `POST /GD02/Apis/api/PaTblSerieCtrl` — carga masiva desde Excel
+
+> **En desuso (03/11/2026).** Usa `paInsertTblSerie`, que no cumple con los estándares de la empresa. Reemplazo: `POST /GD02/Apis/api/Series/mantenimiento` (sección 14).
 
 Es el endpoint central del requerimiento. Recibe el archivo, valida su estructura, arma la lista de series y las inserta **dentro de una transacción**.
 
@@ -319,6 +345,8 @@ public class PaTblSerieParametrosM
 
 ## 6. `POST /GD02/Apis/api/PaInsertTblSerieCtrl/insertar` — alta unitaria
 
+> **En desuso (03/11/2026).** Usa `paInsertTblSerie`, que no cumple con los estándares de la empresa. Reemplazo: `POST /GD02/Apis/api/Series/mantenimiento` (sección 14).
+
 Alta de **una sola serie**. Es el endpoint que atiende el escáner y la digitación manual.
 
 **Archivo:** `Controllers/Series/PaInsertTblSerieCtrl.cs`
@@ -385,6 +413,8 @@ Objeto simple, **sin envoltura**:
 
 ## 7. `GET /GD02/Apis/api/PaBscSeriesCtrl` — consulta de series
 
+> **En desuso (03/11/2026).** Usa `paInsertTblSerie`, que no cumple con los estándares de la empresa. Reemplazo: `POST /GD02/Apis/api/Series/mantenimiento` (sección 14).
+
 **Archivo:** `Controllers/Series/PaBscSeriesCtrl.cs`
 **Autorización:** `[Authorize]`
 **SP:** `paInsertTblSerie` (`TAccion = 2`)
@@ -441,6 +471,8 @@ Mapeado en el cliente por `PaTblSerieM.fromJson`.
 
 ## 8. `DELETE /GD02/Apis/api/PaDelSerieCtrl` — baja de una serie
 
+> **En desuso (03/11/2026).** Usa `paInsertTblSerie`, que no cumple con los estándares de la empresa. Reemplazo: `POST /GD02/Apis/api/Series/mantenimiento` (sección 14).
+
 **Archivo:** `Controllers/Series/PaDelSerieCtrl.cs`
 **Autorización:** `[Authorize]`
 **SP:** `paInsertTblSerie` (`TAccion = 3`)
@@ -488,6 +520,8 @@ No existe endpoint de borrado en lote. Para eliminar N series, el cliente hace N
 ---
 
 ## 9. Procedimiento almacenado `paInsertTblSerie`
+
+> **En desuso (03/11/2026).** No cumple con los estándares de la empresa. Se reemplaza por `PA_tbl_Serie` (sección 14).
 
 Es un procedimiento **multipropósito** con una rama por cada valor de `TAccion`, patrón habitual en esta base de código (`paCrudX(@Accion, …)`).
 
@@ -694,3 +728,120 @@ sequenceDiagram
 | **Idioma** | Español en namespaces, nombres de procedimientos, parámetros y mensajes. |
 | **Sufijo `M`** | Denota un modelo de respuesta ligado al resultado de un procedimiento almacenado (`PaTblSerieM`). |
 | **Librería Excel** | EPPlus (`OfficeOpenXml`), en modo licencia no comercial. |
+
+---
+
+## 14. `POST /GD02/Apis/api/Series/mantenimiento` — mantenimiento con `PA_tbl_Serie` (nuevo)
+
+> **Agregado el 03/11/2026.** Endpoint nuevo para `PA_tbl_Serie`, el procedimiento estándar de `tbl_Serie`. **Reemplaza a los endpoints de las secciones 5 a 8**, que usan `paInsertTblSerie` y se dejarán de usar porque no cumplen con los estándares de la empresa. Mientras los clientes migran, esos endpoints siguen funcionando igual.
+
+**Archivos:**
+
+- `Controllers/Inventario/Mantenimiento/SeriesController.cs`
+- `Servicios/Inventario/Mantenimiento/SerieService.cs`
+- Modelos `Models/Request/Inventario/Mantenimiento/SerieM.cs` y `Models/Response/Inventario/Mantenimiento/SerieM.cs`
+
+**Patrón:** el nuevo del proyecto. El controlador solo llama al servicio, y el servicio extiende `StoredProcedureExecutor`.
+
+**Autorización:** `[Authorize]`
+**Content-Type:** `application/json`
+**SP:** `PA_tbl_Serie`
+**Respuesta:** siempre con la envoltura `ApiResponseModel<List<SerieM>>`. Devuelve `200` si `status = true` y `400` si `status = false`.
+
+### Acciones (`TAccion`)
+
+| `TAccion` | Operación | Campos necesarios | `data` en la respuesta |
+|---|---|---|---|
+| `1` | Insertar | `bodega`, `producto`, `unidad_Medida`, `estado`, `cantidad`, `userName` y los opcionales que apliquen | `[ { "serie": "<consecutivo generado>" } ]` |
+| `2` | Actualizar | Llave (`serie`, `bodega`, `producto`, `unidad_Medida`) y los campos a modificar, `m_UserName` | `[]` |
+| `3` | Eliminar | Llave (`serie`, `bodega`, `producto`, `unidad_Medida`) | `[]` |
+| `4` | Consultar | Llave (`serie`, `bodega`, `producto`, `unidad_Medida`) | La fila completa de `tbl_Serie` |
+
+`tOpcion` se envía como `1`, que es su valor por defecto. Hoy el procedimiento no lo usa.
+
+### Petición
+
+```json
+{
+  "tAccion": 1,
+  "tOpcion": 1,
+  "serie": null,
+  "bodega": 3,
+  "producto": 15001,
+  "unidad_Medida": 1,
+  "estado": 1,
+  "cantidad": 0,
+  "orden": 1,
+  "userName": "usuario1",
+  "localizacion": 1,
+  "depreciacion_Acumulada": 0,
+  "id_Serie": "ABC123456789",
+  "fecha_Vencimiento": null,
+  "costo_Total": null,
+  "fecha_Compra": null,
+  "fecha_Produccion": null,
+  "fecha_Alerta": null,
+  "m_UserName": null
+}
+```
+
+Los campos que no se envían viajan como `NULL`, porque el procedimiento no tiene valores por defecto. `fecha_Hora` y `m_Fecha_Hora` las pone el procedimiento con `GETDATE()`.
+
+### Respuesta `200 OK` (TAccion 1)
+
+```json
+{
+  "status": true,
+  "message": "Operacion exitosa",
+  "storedProcedure": "PA_tbl_Serie",
+  "parameters": { "@TAccion": 1, "@pSerie": "27", "...": "..." },
+  "data": [ { "serie": "27", "bodega": null, "...": null } ],
+  "errorCode": ""
+}
+```
+
+### Respuesta de error `400`
+
+Por ejemplo, cuando falta un campo obligatorio de la tabla (`estado`, `cantidad` o `userName` en el alta):
+
+```json
+{
+  "status": false,
+  "message": "Error en la base de datos.",
+  "error": "No se puede insertar el valor NULL en la columna 'Estado'...",
+  "errorCode": "1-515",
+  "storedProcedure": "PA_tbl_Serie"
+}
+```
+
+### Diferencias con `paInsertTblSerie` (importante al migrar un cliente)
+
+`PA_tbl_Serie` **no es un reemplazo directo** de `paInsertTblSerie`. Por eso los endpoints anteriores no se modificaron: se mantienen hasta que los clientes migren y después se retiran.
+
+| Tema | `paInsertTblSerie` (endpoints 4–7) | `PA_tbl_Serie` (endpoint 8) |
+|---|---|---|
+| Serie en el alta | Guarda la serie enviada en `Serie`. | **Genera** `Serie` como consecutivo (`MAX(Consecutivo_Interno) + 1`) e ignora la enviada. La serie del producto va en `id_Serie`. |
+| Duplicados | Rechaza con *"La serie ya existe."* | No valida duplicados. |
+| `TAccion = 2` | Lista todas las series. | **Actualiza** una serie. |
+| Consulta | Todas las series, sin filtro. | Una serie por llave completa (`TAccion = 4`). No hay acción para listar todas. |
+| Baja | Por `serie`, y avisa *"La serie no existe."* | Por llave completa (serie, bodega, producto, unidad de medida). Si no la encuentra, no da error. |
+| Parámetros | 6 (el resto con valores fijos en el SP). | 21. Los valores que antes eran fijos (`estado 1`, `cantidad 0`, `orden 1`, `localizacion 1`, `depreciacion_Acumulada 0`) ahora los envía el cliente. |
+| Manejo de errores | `TRY/CATCH`. | Sin `TRY/CATCH`: el error de SQL llega tal cual en `error`, con `errorCode` `1-<número>`. |
+
+### Ejemplos
+
+```http
+POST /GD02/Apis/api/Series/mantenimiento HTTP/1.1
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{ "tAccion": 4, "serie": "27", "bodega": 3, "producto": 15001, "unidad_Medida": 1 }
+```
+
+```http
+POST /GD02/Apis/api/Series/mantenimiento HTTP/1.1
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{ "tAccion": 3, "serie": "27", "bodega": 3, "producto": 15001, "unidad_Medida": 1 }
+```
